@@ -34,6 +34,10 @@ ytdl_format_options = {
     'source_address': '0.0.0.0', # bind to ipv4 since ipv6 addresses cause issues sometimes
 }
 
+# Use cookies.txt if it exists to bypass YouTube bot detection
+if os.path.exists('cookies.txt'):
+    ytdl_format_options['cookiefile'] = 'cookies.txt'
+
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
 class YTDLSource(discord.PCMVolumeTransformer):
