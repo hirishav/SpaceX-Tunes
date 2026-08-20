@@ -34,9 +34,16 @@ ytdl_format_options = {
     'source_address': '0.0.0.0', # bind to ipv4 since ipv6 addresses cause issues sometimes
 }
 
+# Resolve absolute path for cookies.txt
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+cookie_path = os.path.join(BASE_DIR, 'cookies.txt')
+
 # Use cookies.txt if it exists to bypass YouTube bot detection
-if os.path.exists('cookies.txt'):
-    ytdl_format_options['cookiefile'] = 'cookies.txt'
+if os.path.exists(cookie_path):
+    ytdl_format_options['cookiefile'] = cookie_path
+elif platform.system() == 'Windows':
+    # Fallback to Chrome/Edge cookies if running locally and no cookies.txt is provided
+    ytdl_format_options['cookiesfrombrowser'] = ('chrome',)
 
 ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
