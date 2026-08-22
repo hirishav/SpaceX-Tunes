@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+import wavelink
 
 class Join(commands.Cog):
     def __init__(self, bot):
@@ -15,7 +16,7 @@ class Join(commands.Cog):
         if ctx.voice_client is not None:
             return await ctx.voice_client.move_to(channel)
         
-        await channel.connect(self_deaf=True)
+        await channel.connect(cls=wavelink.Player, self_deaf=True)
         embed = discord.Embed(description=f"🚀 Lo aa gaya me **{channel}** me!", color=0x2ecc71)
         await ctx.send(embed=embed)
 

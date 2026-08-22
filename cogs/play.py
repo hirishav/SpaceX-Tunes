@@ -1,8 +1,8 @@
 import discord
 from discord.ext import commands
-from utils.music_player import YTDLSource, get_queue
-from utils.spotify import is_spotify_url, get_track_name
+import wavelink
 import asyncio
+from utils.spotify import is_spotify_url, get_track_name
 
 class MusicControls(discord.ui.View):
     def __init__(self, ctx):
@@ -20,38 +20,37 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary, emoji="⏸️")
     async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        vc = self.ctx.voice_client
-        if vc and vc.is_playing():
-            vc.pause()
+        vc: wavelink.Player = self.ctx.voice_client
+        if vc and vc.playing:
+            await vc.pause(True)
             await interaction.response.send_message("⏸️ Music paused.", ephemeral=True)
         else:
             await interaction.response.send_message("Music is not playing.", ephemeral=True)
 
     @discord.ui.button(label="Resume", style=discord.ButtonStyle.success, emoji="▶️")
     async def resume_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        vc = self.ctx.voice_client
-        if vc and vc.is_paused():
-            vc.resume()
+        vc: wavelink.Player = self.ctx.voice_client
+        if vc and vc.paused:
+            await vc.pause(False)
             await interaction.response.send_message("▶️ Music resumed.", ephemeral=True)
         else:
             await interaction.response.send_message("Music is not paused.", ephemeral=True)
 
     @discord.ui.button(label="Skip", style=discord.ButtonStyle.primary, emoji="⏭️")
     async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        vc = self.ctx.voice_client
-        if vc and vc.is_playing():
-            vc.stop()
+        vc: wavelink.Player = self.ctx.voice_client
+        if vc and vc.playing:
+            await vc.skip(force=True)
             await interaction.response.send_message("⏭️ Skipped current song.", ephemeral=True)
         else:
             await interaction.response.send_message("Nothing to skip.", ephemeral=True)
 
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger, emoji="⏹️")
     async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        vc = self.ctx.voice_client
+        vc: wavelink.Player = self.ctx.voice_client
         if vc:
-            queue = get_queue(self.ctx.guild.id)
-            queue.clear()
-            vc.stop()
+            vc.queue.clear()
+            await vc.disconnect()
             await interaction.response.send_message("⏹️ Player stopped and queue cleared.", ephemeral=True)
         else:
             await interaction.response.send_message("Not connected.", ephemeral=True)
@@ -60,31 +59,45 @@ class Play(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    async def play_next_async(self, ctx):
-        queue = get_queue(ctx.guild.id)
-        if len(queue) >= 1:
-            song = queue.pop(0)
-            ctx.voice_client.play(song['source'], after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next_async(ctx), self.bot.loop))
+    @commands.Cog.listener()
+    async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
+        player = payload.player
+        if not player:
+            return
             
-            try:
-                await ctx.voice_client.channel.edit(status=f"🎶 {song['title']}")
-            except discord.Forbidden:
-                pass # Bot might not have permissions
-            except Exception:
-                pass
+        track = payload.track
+        
+        try:
+            await player.channel.edit(status=f"🎶 {track.title}")
+        except discord.Forbidden:
+            pass # Bot might not have permissions
+        except Exception:
+            pass
 
-            embed = discord.Embed(title="🎶 Now Playing", description=f"**[{song['title']}]({song['url']})**", color=0x00ff00)
+        if hasattr(player, 'ctx'):
+            embed = discord.Embed(title="🎶 Now Playing", description=f"**[{track.title}]({track.uri})**", color=0x00ff00)
             embed.set_footer(text="SpaceX Tunes | Developed by Rishav")
-            await ctx.send(embed=embed, view=MusicControls(ctx))
-        else:
+            await player.ctx.send(embed=embed, view=MusicControls(player.ctx))
+
+    @commands.Cog.listener()
+    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
+        player = payload.player
+        if not player:
+            return
+            
+        # Wavelink's AutoPlay handles playing the next track in queue automatically
+        # if player.autoplay is set to partial. 
+        # But if the queue is empty:
+        if player.queue.is_empty:
             try:
-                if ctx.voice_client and ctx.voice_client.channel:
-                    await ctx.voice_client.channel.edit(status=None)
+                if player.channel:
+                    await player.channel.edit(status=None)
             except:
                 pass
-                
-            embed = discord.Embed(title="⏹️ Queue Finished", description="Aur gaane daalo bhai! 🎧", color=0xff0000)
-            await ctx.send(embed=embed)
+            
+            if hasattr(player, 'ctx'):
+                embed = discord.Embed(title="⏹️ Queue Finished", description="Aur gaane daalo bhai! 🎧", color=0xff0000)
+                await player.ctx.send(embed=embed)
 
     @commands.command(name='play', aliases=['p'], help='Koi bhi gaana bajao (YouTube/Spotify)')
     async def play(self, ctx, *, query: str):
@@ -94,12 +107,17 @@ class Play(commands.Cog):
         
         channel = ctx.message.author.voice.channel
         
-        if ctx.voice_client is None:
-            await channel.connect(self_deaf=True)
-            # Embed for joining is handled in join.py, but we can just let it be silent here or add a mini embed
-        elif ctx.voice_client.channel != channel:
-            await ctx.send(embed=discord.Embed(description="Me already dusre channel me hu bhai, waha aa jao.", color=0xff0000))
-            return
+        # Connect to voice channel as a wavelink Player
+        if not ctx.voice_client:
+            vc: wavelink.Player = await channel.connect(cls=wavelink.Player)
+            vc.ctx = ctx # Attach ctx for messaging
+            vc.autoplay = wavelink.AutoPlayMode.partial # Auto play next from queue
+        else:
+            vc: wavelink.Player = ctx.voice_client
+            vc.ctx = ctx
+            if vc.channel != channel:
+                await ctx.send(embed=discord.Embed(description="Me already dusre channel me hu bhai, waha aa jao.", color=0xff0000))
+                return
 
         async with ctx.typing():
             search_query = query
@@ -111,24 +129,27 @@ class Play(commands.Cog):
                 else:
                     await ctx.send(embed=discord.Embed(description="Yaar is Spotify link me kuch gadbad lag rahi hai ya API set nahi hai. 😅", color=0xff0000))
                     return
-            
-            if not search_query.startswith('http'):
-                search_query = f"ytsearch:{search_query}"
 
             try:
-                player = await YTDLSource.from_url(search_query, loop=self.bot.loop, stream=True)
+                tracks = await wavelink.Playable.search(search_query)
+                if not tracks:
+                    await ctx.send(embed=discord.Embed(description="Bhai ye gaana nahi mila mujhe.", color=0xff0000))
+                    return
+                
+                track = tracks[0] # Get the first result
+                
+                vc.queue.put(track)
+                
+                if not vc.playing:
+                    # Start playing if not already
+                    await vc.play(vc.queue.get())
+                else:
+                    embed = discord.Embed(title="📝 Added to Queue", description=f"**[{track.title}]({track.uri})**\nPosition: #{vc.queue.count}", color=0x3498db)
+                    await ctx.send(embed=embed)
+                    
             except Exception as e:
-                await ctx.send(embed=discord.Embed(title="Error", description=f"Error aa gaya bhai gaana dhundne me: ```{e}```", color=0xff0000))
+                await ctx.send(embed=discord.Embed(title="Error", description=f"Lavalink Node par error aa gaya: ```{e}```", color=0xff0000))
                 return
-
-            queue = get_queue(ctx.guild.id)
-            queue.append({'source': player, 'title': player.title, 'url': player.url})
-
-            if not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused():
-                await self.play_next_async(ctx)
-            else:
-                embed = discord.Embed(title="📝 Added to Queue", description=f"**[{player.title}]({player.url})**\nPosition: #{len(queue)}", color=0x3498db)
-                await ctx.send(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(Play(bot))

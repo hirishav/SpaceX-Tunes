@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 import asyncio
 from keep_alive import keep_alive
+import wavelink
 
 # Load environment variables
 load_dotenv()
@@ -16,6 +17,9 @@ class SpaceXBot(commands.Bot):
         super().__init__(command_prefix='!', intents=intents, help_command=None)
 
     async def setup_hook(self):
+        nodes = [wavelink.Node(uri="http://free-lava.heavencloud.in:4000", password="heavencloud.in")]
+        await wavelink.Pool.connect(nodes=nodes, client=self, cache_capacity=100)
+        
         for filename in os.listdir('./cogs'):
             if filename.endswith('.py'):
                 try:
