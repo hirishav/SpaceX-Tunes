@@ -131,10 +131,11 @@ class Play(commands.Cog):
                     return
 
             try:
-                tracks = await wavelink.Playable.search(search_query, source=wavelink.TrackSource.YouTube)
+                # SoundCloud is much more reliable for public nodes due to YouTube IP blocks
+                tracks = await wavelink.Playable.search(search_query, source=wavelink.TrackSource.SoundCloud)
                 if not tracks:
-                    # Fallback to SoundCloud in case YouTube is blocked on the node
-                    tracks = await wavelink.Playable.search(search_query, source=wavelink.TrackSource.SoundCloud)
+                    # Fallback to YouTube
+                    tracks = await wavelink.Playable.search(search_query, source=wavelink.TrackSource.YouTube)
                     
                 if not tracks:
                     await ctx.send(embed=discord.Embed(description="Bhai ye gaana YouTube aur SoundCloud dono pe nahi mila mujhe.", color=0xff0000))
