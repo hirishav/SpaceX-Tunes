@@ -99,6 +99,25 @@ class Play(commands.Cog):
                 embed = discord.Embed(title="⏹️ Queue Finished", description="Aur gaane daalo bhai! 🎧", color=0xff0000)
                 await player.ctx.send(embed=embed)
 
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        vc: wavelink.Player = member.guild.voice_client
+        if not vc or not vc.channel:
+            return
+
+        if not member.bot and before.channel == vc.channel and after.channel != vc.channel:
+            non_bots = [m for m in vc.channel.members if not m.bot]
+            if len(non_bots) == 0:
+                await asyncio.sleep(60)
+                # Check again after 1 minute
+                if vc.channel:
+                    non_bots = [m for m in vc.channel.members if not m.bot]
+                    if len(non_bots) == 0:
+                        try:
+                            await vc.disconnect()
+                        except:
+                            pass
+
     @commands.command(name='play', aliases=['p'], help='Koi bhi gaana bajao (YouTube/Spotify)')
     async def play(self, ctx, *, query: str):
         if not ctx.message.author.voice:
@@ -109,7 +128,7 @@ class Play(commands.Cog):
         
         # Connect to voice channel as a wavelink Player
         if not ctx.voice_client:
-            vc: wavelink.Player = await channel.connect(cls=wavelink.Player)
+            vc: wavelink.Player = await channel.connect(cls=wavelink.Player, self_deaf=True)
             vc.ctx = ctx # Attach ctx for messaging
             vc.autoplay = wavelink.AutoPlayMode.partial # Auto play next from queue
         else:
