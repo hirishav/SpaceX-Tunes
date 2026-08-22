@@ -17,7 +17,10 @@ class SpaceXBot(commands.Bot):
         super().__init__(command_prefix='!', intents=intents, help_command=None)
 
     async def setup_hook(self):
-        nodes = [wavelink.Node(uri="http://free-lava.heavencloud.in:4000", password="heavencloud.in")]
+        lava_uri = os.getenv('LAVALINK_URI', 'http://lava2.kasawa.pro:2334')
+        lava_password = os.getenv('LAVALINK_PASSWORD', 'youshallnotpass')
+        
+        nodes = [wavelink.Node(uri=lava_uri, password=lava_password)]
         await wavelink.Pool.connect(nodes=nodes, client=self, cache_capacity=100)
         
         for filename in os.listdir('./cogs'):
