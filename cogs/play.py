@@ -133,7 +133,11 @@ class Play(commands.Cog):
             try:
                 tracks = await wavelink.Playable.search(search_query)
                 if not tracks:
-                    await ctx.send(embed=discord.Embed(description="Bhai ye gaana nahi mila mujhe.", color=0xff0000))
+                    # Fallback to SoundCloud in case YouTube is blocked on the node
+                    tracks = await wavelink.Playable.search(f"scsearch:{search_query}")
+                    
+                if not tracks:
+                    await ctx.send(embed=discord.Embed(description="Bhai ye gaana YouTube aur SoundCloud dono pe nahi mila mujhe.", color=0xff0000))
                     return
                 
                 track = tracks[0] # Get the first result
